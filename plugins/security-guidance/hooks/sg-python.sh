@@ -22,6 +22,29 @@
 #        "${CLAUDE_PLUGIN_ROOT}/hooks/security_reminder_hook.py"
 set -e
 
+# Git Bash / MSYS on Windows hands script paths to this shim in POSIX form
+# (`/c/Users/...`). When we exec a Windows `python.exe` (which we do on
+# Windows since `python3` is the Microsoft Store stub), python interprets the
+# leading `/` as the root of the current drive — e.g. `/c/Users/...` becomes
+# `C:\c\Users\...` or `D:\c\Users\...` (whichever drive the shell is on),
+# fails with ENOENT, and every Edit/Write/MultiEdit tool use blocks until the
+# session restarts. See anthropics/claude-plugins-official#2043.
+#
+# Fix: convert absolute path args to native Windows form via `cygpath -w`
+# before exec. `cygpath` is a Git Bash builtin; it's absent on macOS/Linux,
+# where the `command -v` guard makes this a no-op. `cygpath -w` is idempotent
+# for already-Windows paths so the rare mixed-form case is safe.
+if command -v cygpath >/dev/null 2>&1; then
+    converted=()
+    for a in "$@"; do
+        case "$a" in
+            /*) converted+=("$(cygpath -w "$a")") ;;
+            *)  converted+=("$a") ;;
+        esac
+    done
+    set -- "${converted[@]}"
+fi
+
 probe() {
     # $1..N: the interpreter command (may be multi-word like `py -3`)
     # Probe writes the major version to stdout and exits 0 iff it's >=3.
