@@ -16,13 +16,15 @@
             "timeout": 3
           }
         ]
-      },
+      }
+    ],
+    "PostToolUse": [
       {
         "matcher": "mcp__plugin_artifice-discord_artifice-discord__reply",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/discord-preply-forward.js\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/discord-postreply-preamble.js\"",
             "timeout": 10
           }
         ]
