@@ -28,6 +28,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/discord-stop-forward.js\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
