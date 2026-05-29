@@ -799,17 +799,23 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       }
       try {
         execSync(`tmux send-keys -t "${session}" '/model ${modelId}' Enter`, { timeout: 5000 })
-        // Wait for TUI to render potential "Switch model?" confirmation prompt, then auto-confirm
-        await new Promise(r => setTimeout(r, 300))
-        try {
-          const pane = execSync(`tmux capture-pane -t "${session}" -p`, { timeout: 3000 }).toString()
-          if (pane.includes('Switch model?')) {
-            execSync(`tmux send-keys -t "${session}" '1' Enter`, { timeout: 3000 })
-          }
-        } catch {}
+        // Ack Discord immediately, then handle the confirm prompt async (no 3s window pressure)
         await interaction.reply({ content: `✓ Switching to \`${modelId}\`...` }).catch(e => {
           process.stderr.write(`artifice-discord: /model reply failed: ${e}\n`)
         })
+        // The "Switch model?" confirm only renders when the conversation is cached for
+        // the current model. Render timing varies, so poll the pane for up to ~3s and
+        // confirm the default-highlighted option (Yes) the moment it appears.
+        for (let i = 0; i < 12; i++) {
+          await new Promise(r => setTimeout(r, 250))
+          try {
+            const pane = execSync(`tmux capture-pane -t "${session}" -p`, { timeout: 3000 }).toString()
+            if (pane.includes('Switch model?')) {
+              execSync(`tmux send-keys -t "${session}" Enter`, { timeout: 3000 })
+              break
+            }
+          } catch {}
+        }
       } catch (err) {
         await interaction.reply({ content: `❌ Failed: ${err instanceof Error ? err.message : String(err)}`, ephemeral: true }).catch(() => {})
       }
