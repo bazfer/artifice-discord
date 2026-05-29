@@ -48,6 +48,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/discord-stop-forward.js\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-context-tracker.js\"",
+            "timeout": 10
           }
         ]
       }
