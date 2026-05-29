@@ -7,6 +7,9 @@
 //
 // Fires on Stop. Does nothing (exit 0) when: the turn already called reply, the
 // trigger wasn't a Discord message, or there's no closing text. Never blocks.
+//
+// Race note: Stop fires before the final text entry is flushed to the transcript.
+// We wait 300ms before reading so the write completes first.
 
 const { readFileSync } = require('fs')
 const { request } = require('https')
@@ -50,7 +53,7 @@ function hasReplyCall(content) {
 
 let raw = ''
 process.stdin.on('data', c => { raw += c })
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   let payload = {}
   try { payload = JSON.parse(raw) } catch { process.exit(0) }
 
@@ -59,6 +62,9 @@ process.stdin.on('end', () => {
 
   const transcriptPath = payload.transcript_path
   if (!transcriptPath) process.exit(0)
+
+  // Stop fires before the final text entry flushes to the transcript — wait for it.
+  await new Promise(r => setTimeout(r, 300))
 
   let entries
   try {
