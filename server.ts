@@ -28,12 +28,14 @@ import {
   type Message,
   type Attachment,
   type Interaction,
+  type ChatInputCommandInteraction,
 } from 'discord.js'
 import { randomBytes } from 'crypto'
 import { execSync } from 'child_process'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { join, sep } from 'path'
+import { VoiceManager } from './voice'
 
 const STATE_DIR = process.env.DISCORD_STATE_DIR ?? join(homedir(), '.claude', 'channels', 'discord')
 const ACCESS_FILE = join(STATE_DIR, 'access.json')
@@ -99,6 +101,7 @@ const client = new Client({
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.MessageContent,
   ],
   // DMs arrive as partial channels — messageCreate never fires without this.
@@ -249,6 +252,24 @@ function noteSent(id: string): void {
   }
 }
 
+function groupAllowsSender(policy: GroupPolicy | undefined, senderId: string): policy is GroupPolicy {
+  if (!policy) return false
+  const groupAllowFrom = policy.allowFrom ?? []
+  return groupAllowFrom.length === 0 || groupAllowFrom.includes(senderId)
+}
+
+async function interactionAllowedInGroupChannel(
+  interaction: ChatInputCommandInteraction,
+  access: Access,
+  senderId: string,
+): Promise<boolean> {
+  if (!interaction.inGuild()) return false
+  const ch = interaction.channel ?? await client.channels.fetch(interaction.channelId).catch(() => null)
+  if (!ch || ch.type === ChannelType.DM) return false
+  const channelId = ch.isThread() ? ch.parentId ?? interaction.channelId : interaction.channelId
+  return groupAllowsSender(access.groups[channelId], senderId)
+}
+
 async function gate(msg: Message): Promise<GateResult> {
   const access = loadAccess()
   const pruned = pruneExpired(access)
@@ -297,12 +318,8 @@ async function gate(msg: Message): Promise<GateResult> {
     ? msg.channel.parentId ?? msg.channelId
     : msg.channelId
   const policy = access.groups[channelId]
-  if (!policy) return { action: 'drop' }
-  const groupAllowFrom = policy.allowFrom ?? []
+  if (!groupAllowsSender(policy, senderId)) return { action: 'drop' }
   const requireMention = policy.requireMention ?? true
-  if (groupAllowFrom.length > 0 && !groupAllowFrom.includes(senderId)) {
-    return { action: 'drop' }
-  }
   if (requireMention && !(await isMentioned(msg, access.mentionPatterns))) {
     return { action: 'drop' }
   }
@@ -485,6 +502,29 @@ const mcp = new Server(
 // Stores full permission details for "See more" expansion keyed by request_id.
 const pendingPermissions = new Map<string, { tool_name: string; description: string; input_preview: string }>()
 
+const voiceManager = new VoiceManager({
+  client,
+  onTranscript: async ({ text, chatId, voiceChannelId }) => {
+    mcp.notification({
+      method: 'notifications/claude/channel',
+      params: {
+        content: text,
+        meta: {
+          chat_id: chatId,
+          message_id: `voice-${Date.now()}`,
+          user: 'Fernando',
+          user_id: process.env.DISCORD_VOICE_USER_ID ?? '301045022361518081',
+          ts: new Date().toISOString(),
+          voice: 'true',
+          voice_channel_id: voiceChannelId,
+        },
+      },
+    }).catch(err => {
+      process.stderr.write(`artifice-discord: failed to deliver voice inbound to Claude: ${err}\n`)
+    })
+  },
+})
+
 // Receive permission_request from CC → format → send to all allowlisted DMs.
 // Groups are intentionally excluded — the security thread resolution was
 // "single-user mode for official plugins." Anyone in access.allowFrom
@@ -664,6 +704,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           throw new Error(`reply failed after ${sentIds.length} of ${chunks.length} chunk(s) sent: ${msg}`)
         }
 
+        void voiceManager.speakForChat(chat_id, text)
+
         const result =
           sentIds.length === 1
             ? `sent (id: ${sentIds[0]})`
@@ -745,6 +787,7 @@ function shutdown(): void {
   if (shuttingDown) return
   shuttingDown = true
   process.stderr.write('artifice-discord: shutting down\n')
+  voiceManager.shutdown()
   setTimeout(() => process.exit(0), 2000)
   void Promise.resolve(client.destroy()).finally(() => process.exit(0))
 }
@@ -771,7 +814,24 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       await interaction.reply({ content: 'Not authorized.', ephemeral: true }).catch(() => {})
       return
     }
-    if (interaction.commandName === 'compact') {
+    if (interaction.commandName === 'voice') {
+      await interaction.deferReply().catch(() => {})
+      const subcommand = interaction.options.getSubcommand(false)
+      try {
+        if (subcommand === 'leave') {
+          await interaction.editReply(voiceManager.leave(interaction.guildId ?? undefined)).catch(() => {})
+        } else {
+          if (!(await interactionAllowedInGroupChannel(interaction, access, uid))) {
+            await interaction.editReply('❌ Voice failed: this channel is not allowlisted for voice.').catch(() => {})
+            return
+          }
+          const msg = await voiceManager.joinFromInteraction(interaction)
+          await interaction.editReply(`✓ ${msg}`).catch(() => {})
+        }
+      } catch (err) {
+        await interaction.editReply(`❌ Voice failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {})
+      }
+    } else if (interaction.commandName === 'compact') {
       await interaction.deferReply().catch(() => {})
       const session = readPersonaName()
       if (!session) {
@@ -1002,6 +1062,14 @@ client.once('ready', async c => {
     ],
   }
   const commands = [
+    {
+      name: 'voice',
+      description: 'Join or leave Fernando\'s current voice channel',
+      options: [
+        { type: 1, name: 'join', description: 'Join Fernando\'s current voice channel' },
+        { type: 1, name: 'leave', description: 'Leave voice' },
+      ],
+    },
     { name: 'compact', description: 'Compact context' },
     { name: 'clear', description: 'Clear conversation' },
     { name: 'model', description: 'Switch model', options: [modelOption] },

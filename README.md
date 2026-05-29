@@ -9,6 +9,7 @@ When the bot receives a message, the MCP server forwards it to Claude and provid
 ## Prerequisites
 
 - [Bun](https://bun.sh) — the MCP server runs on Bun. Install with `curl -fsSL https://bun.sh/install | bash`.
+- Voice mode requires Google Speech-to-Text and Text-to-Speech auth via Google Application Default Credentials (for example `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json`). `GOOGLE_API_KEY` is an experimental, untested fallback.
 
 ## Quick Setup
 > Default pairing flow for a single-user DM bot. See [ACCESS.md](./ACCESS.md) for groups and multi-user setups.
@@ -37,6 +38,9 @@ Navigate to **OAuth2** → **URL Generator**. Select the `bot` scope. Under **Bo
 - Read Message History
 - Attach Files
 - Add Reactions
+- Connect
+- Speak
+- Use Voice Activity
 
 Integration type: **Guild Install**. Copy the **Generated URL**, open it, and add the bot to any server you're in.
 
@@ -98,6 +102,31 @@ Quick reference: IDs are Discord **snowflakes** (numeric — enable Developer Mo
 
 Inbound messages trigger a typing indicator automatically — Discord shows
 "botname is typing…" while the assistant works on a response.
+
+## Voice mode
+
+Voice mode lets Fernando hold PTT in Discord, speak to the bot, and hear the assistant response in the same voice channel.
+
+Configuration:
+
+```sh
+# Supported: Google Application Default Credentials, commonly a service-account key.
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+Other ADC sources supported by Google's client libraries (for example workload identity, gcloud ADC, or metadata service credentials) may also work. `GOOGLE_API_KEY` remains as a best-effort experimental fallback, but it is untested for Cloud Speech/Text-to-Speech and is not the recommended setup.
+
+Usage:
+
+- Join the voice channel Fernando is currently in: `/voice join`
+- Leave voice: `/voice leave`
+
+Notes:
+
+- The bot does not hardcode a channel ID; it looks up Fernando's current voice channel when `/voice join` runs.
+- Fernando's Discord user ID defaults to `301045022361518081`; override with `DISCORD_VOICE_USER_ID` if needed.
+- The bot buffers Fernando's Discord Opus packets while PTT is active, ignores taps under 300ms, transcribes on PTT release, and auto-leaves after 10 minutes of inactivity.
+- TTS defaults to `en-US-Neural2-D`; set `tts_voice:` in `~/.claude/persona.md` to override.
 
 ## Attachments
 
