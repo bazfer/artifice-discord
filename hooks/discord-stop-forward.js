@@ -68,19 +68,29 @@ process.stdin.on('end', () => {
   } catch { process.exit(0) }
   if (entries.length === 0) process.exit(0)
 
-  // Walk backwards through the current turn: capture the final assistant text,
-  // note any reply call, and find the triggering user message. tool_result
-  // user entries and non-message bookkeeping entries are intra-turn — skip them.
-  let finalText = ''
-  let repliedThisTurn = false
+  // Walk backwards to find the most recent assistant entry that is EITHER a
+  // text block or a reply call — whichever the turn ended on. Text blocks only
+  // ever reach the terminal; the reply tool is the only path to Discord. So:
+  //   - turn ended on text  → it leaked, forward it
+  //   - turn ended on reply → covered, do nothing
+  // Earlier text (pre-reply preamble, mid-turn narration) is intentionally
+  // ignored — only the closing statement matters. This catches trailing text
+  // emitted AFTER a reply, which is the common slip.
+  let leakedText = ''
+  let decided = false
   let triggerContent = null
 
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i]
     const content = e.message && e.message.content
-    if (e.type === 'assistant') {
-      if (hasReplyCall(content)) repliedThisTurn = true
-      if (!finalText) finalText = textOf(content)
+    if (e.type === 'assistant' && !decided) {
+      if (hasReplyCall(content)) {
+        decided = true // ended on (or covered by) a reply — nothing leaked
+      } else {
+        const t = textOf(content)
+        if (t) { leakedText = t; decided = true }
+        // thinking / tool_use(Bash) entries carry no text — keep walking
+      }
     } else if (e.type === 'user') {
       if (isToolResult(content)) continue
       triggerContent = textOf(content)
@@ -88,8 +98,7 @@ process.stdin.on('end', () => {
     }
   }
 
-  if (repliedThisTurn) process.exit(0)
-  if (!finalText) process.exit(0)
+  if (!leakedText) process.exit(0)
   if (!triggerContent || !triggerContent.includes(DISCORD_SOURCE)) process.exit(0)
 
   let persona = {}
@@ -104,7 +113,7 @@ process.stdin.on('end', () => {
 
   // Discord hard-caps messages at 2000 chars — chunk on newline boundaries.
   const chunks = []
-  let rest = finalText
+  let rest = leakedText
   while (rest.length > 2000) {
     let cut = rest.lastIndexOf('\n', 2000)
     if (cut < 1000) cut = 2000
