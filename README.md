@@ -9,7 +9,7 @@ When the bot receives a message, the MCP server forwards it to Claude and provid
 ## Prerequisites
 
 - [Bun](https://bun.sh) — the MCP server runs on Bun. Install with `curl -fsSL https://bun.sh/install | bash`.
-- Voice mode requires Google Speech-to-Text and Text-to-Speech auth via Google Application Default Credentials (for example `GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json`). `GOOGLE_API_KEY` is an experimental, untested fallback.
+- Voice mode requires an OpenAI API key (`OPENAI_API_KEY`) for Whisper (STT) and tts-1 (TTS).
 
 ## Quick Setup
 > Default pairing flow for a single-user DM bot. See [ACCESS.md](./ACCESS.md) for groups and multi-user setups.
@@ -105,28 +105,31 @@ Inbound messages trigger a typing indicator automatically — Discord shows
 
 ## Voice mode
 
-Voice mode lets Fernando hold PTT in Discord, speak to the bot, and hear the assistant response in the same voice channel.
+Voice mode lets Fernando speak in a Discord voice channel and have the assistant hear (STT) and optionally speak back (TTS).
 
 Configuration:
 
 ```sh
-# Supported: Google Application Default Credentials, commonly a service-account key.
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+export OPENAI_API_KEY=sk-...
 ```
 
-Other ADC sources supported by Google's client libraries (for example workload identity, gcloud ADC, or metadata service credentials) may also work. `GOOGLE_API_KEY` remains as a best-effort experimental fallback, but it is untested for Cloud Speech/Text-to-Speech and is not the recommended setup.
+STT uses OpenAI Whisper (`whisper-1`). TTS uses OpenAI `tts-1`.
 
 Usage:
 
 - Join the voice channel Fernando is currently in: `/voice join`
 - Leave voice: `/voice leave`
+- Switch voice mode: `/voice mode <full|listen>`
+  - `listen` (default) — transcribes speech, replies in text only
+  - `full` — transcribes speech and speaks replies back via TTS
 
 Notes:
 
 - The bot does not hardcode a channel ID; it looks up Fernando's current voice channel when `/voice join` runs.
 - Fernando's Discord user ID defaults to `301045022361518081`; override with `DISCORD_VOICE_USER_ID` if needed.
 - The bot buffers Fernando's Discord Opus packets while PTT is active, ignores taps under 300ms, transcribes on PTT release, and auto-leaves after 10 minutes of inactivity.
-- TTS defaults to `en-US-Neural2-D`; set `tts_voice:` in `~/.claude/persona.md` to override.
+- TTS voice defaults to `onyx`; set `tts_voice:` in `~/.claude/persona.md` to override (valid values: `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`).
+- Voice mode resets to the default (`listen`) on each new `/voice join`.
 
 ## Attachments
 
