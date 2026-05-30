@@ -107,7 +107,17 @@ export class VoiceManager {
           entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
         ])
       } catch {
-        if (this.states.get(guildId) === state) this.leave(guildId)
+        if (this.states.get(guildId) !== state) return
+        this.leave(guildId)
+        // Auto-rejoin: fetch the channel and reconnect
+        try {
+          const ch = await this.client.channels.fetch(state.voiceChannelId)
+          if (ch && (ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice)) {
+            await this.join(ch as VoiceBasedChannel, state.textChannelId)
+          }
+        } catch {
+          // Rejoin failed — user will need to /voice join manually
+        }
       }
     })
   }
