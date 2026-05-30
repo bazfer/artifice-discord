@@ -79,6 +79,26 @@ process.stdin.on('end', async () => {
 
   if (toForward.length === 0) process.exit(0)
 
+  // If the preamble text is essentially the same as the reply being sent, skip
+  // forwarding — the reply tool will deliver it. This prevents double-sends when
+  // the full response is written as text before calling reply with the same content.
+  const replyText = (tool_input && typeof tool_input.text === 'string') ? tool_input.text.trim() : ''
+  if (replyText) {
+    const allPreamble = toForward.map(x => x.text).join('\n\n').trim()
+    const normalize = s => s.replace(/\s+/g, ' ').toLowerCase()
+    const np = normalize(allPreamble)
+    const nr = normalize(replyText)
+    // If preamble is contained in the reply or vice versa (>80% overlap), it's a duplicate.
+    const shorter = np.length < nr.length ? np : nr
+    const longer = np.length < nr.length ? nr : np
+    if (shorter.length > 0 && longer.includes(shorter.slice(0, Math.floor(shorter.length * 0.8)))) {
+      const maxIndex = Math.max(...toForward.map(x => x.index))
+      state.forwarded_up_to = maxIndex
+      try { writeFileSync(stateFile, JSON.stringify(state)) } catch {}
+      process.exit(0)
+    }
+  }
+
   let token = ''
   try { token = readFileSync(tokenFile, 'utf8').trim() } catch {}
   if (!token) process.exit(0)
