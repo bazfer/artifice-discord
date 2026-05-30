@@ -56,7 +56,6 @@ function pcmToWav(pcm: Buffer, sampleRate = 48000, channels = 2, bitDepth = 16):
 
 export async function transcribe(opusBuffer: Buffer): Promise<string> {
   const pcm = await decodeOpusToPcm(opusBuffer)
-  process.stderr.write(`artifice-discord: [voice-debug] PCM decoded: ${pcm.length} bytes\n`)
   if (pcm.length === 0) return ''
 
   const apiKey = process.env.OPENAI_API_KEY
@@ -80,6 +79,5 @@ export async function transcribe(opusBuffer: Buffer): Promise<string> {
 
   const json = await res.json() as { text?: string }
   const text = (json.text ?? '').trim()
-  process.stderr.write(`artifice-discord: [voice-debug] Whisper result: "${text || '(empty)'}"\n`)
   return text
 }

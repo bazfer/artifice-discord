@@ -12,18 +12,6 @@ import { speak } from './tts'
 const DEFAULT_FERNANDO_USER_ID = '301045022361518081'
 const MIN_UTTERANCE_MS = 300
 const INACTIVITY_LEAVE_MS = 10 * 60 * 1000
-const VOICE_OPCODE_SPEAKING = 5
-
-type PacketEmitter = {
-  on: (event: 'packet', listener: (packet: { op?: number; d?: { user_id?: string; speaking?: number } }) => void) => void
-  off: (event: 'packet', listener: (packet: { op?: number; d?: { user_id?: string; speaking?: number } }) => void) => void
-}
-
-type StateChangeEmitter = {
-  state?: unknown
-  on: (event: 'stateChange', listener: (oldState: unknown, newState: unknown) => void) => void
-  off: (event: 'stateChange', listener: (oldState: unknown, newState: unknown) => void) => void
-}
 
 type VoiceState = {
   guildId: string
@@ -34,7 +22,6 @@ type VoiceState = {
   utteranceStartedAt: number
   chunks: Buffer[]
   stream?: NodeJS.ReadableStream & { destroy?: () => void }
-  voiceGatewayCleanup?: () => void
   inactivityTimer?: ReturnType<typeof setTimeout>
 }
 
@@ -128,7 +115,6 @@ export class VoiceManager {
     if (!state) return 'Not connected to voice.'
 
     if (state.inactivityTimer) clearTimeout(state.inactivityTimer)
-    try { state.voiceGatewayCleanup?.() } catch {}
     try { state.stream?.destroy?.() } catch {}
     try { state.connection.destroy() } catch {}
     this.states.delete(targetGuildId)
@@ -164,21 +150,18 @@ export class VoiceManager {
         end: { behavior: EndBehaviorType.AfterSilence, duration: 400 },
       })
       state.stream = stream
-      process.stderr.write(`artifice-discord: [voice-debug] subscribed, waiting for audio\n`)
 
       stream.on('data', (chunk: Buffer) => {
         if (!state.speaking) {
           state.speaking = true
           state.utteranceStartedAt = Date.now()
           state.chunks = []
-          process.stderr.write(`artifice-discord: [voice-debug] utterance started\n`)
         }
         this.resetInactivityTimer(state)
         state.chunks.push(Buffer.from(chunk))
       })
 
       stream.on('end', () => {
-        process.stderr.write(`artifice-discord: [voice-debug] stream ended, flushing\n`)
         void this.flushUtterance(state).then(() => {
           if (this.states.get(state.guildId) === state) startListening()
         })
@@ -193,52 +176,6 @@ export class VoiceManager {
     startListening()
   }
 
-  private wireVoiceGatewaySpeaking(state: VoiceState): void {
-    const boundNetworkings = new WeakSet<object>()
-    const boundWebSockets = new WeakSet<object>()
-    const cleanup: Array<() => void> = []
-
-    const onPacket = (packet: { op?: number; d?: { user_id?: string; speaking?: number } }) => {
-      if (this.states.get(state.guildId) !== state) return
-      if (packet.op !== VOICE_OPCODE_SPEAKING) return
-      if (packet.d?.user_id !== this.targetUserId) return
-
-      this.resetInactivityTimer(state)
-      if (packet.d.speaking === 0) void this.flushUtterance(state)
-    }
-
-    const bindWs = (networkingState: unknown) => {
-      const ws = (networkingState as { ws?: PacketEmitter } | undefined)?.ws
-      if (!ws || boundWebSockets.has(ws)) return
-      boundWebSockets.add(ws)
-      ws.on('packet', onPacket)
-      cleanup.push(() => ws.off('packet', onPacket))
-    }
-
-    const bindNetworking = (networking: unknown) => {
-      const target = networking as StateChangeEmitter | undefined
-      if (!target || boundNetworkings.has(target)) return
-      boundNetworkings.add(target)
-
-      const onNetworkingStateChange = (_oldState: unknown, newState: unknown) => bindWs(newState)
-      target.on('stateChange', onNetworkingStateChange)
-      cleanup.push(() => target.off('stateChange', onNetworkingStateChange))
-      bindWs(target.state)
-    }
-
-    const onConnectionStateChange = (_oldState: unknown, newState: unknown) => {
-      bindNetworking((newState as { networking?: unknown }).networking)
-    }
-
-    state.connection.on('stateChange', onConnectionStateChange)
-    cleanup.push(() => state.connection.off('stateChange', onConnectionStateChange))
-    bindNetworking((state.connection.state as { networking?: unknown }).networking)
-
-    state.voiceGatewayCleanup = () => {
-      for (const dispose of cleanup.splice(0)) dispose()
-    }
-  }
-
   private async flushUtterance(state: VoiceState): Promise<void> {
     if (!state.speaking) return
     state.speaking = false
@@ -250,23 +187,23 @@ export class VoiceManager {
     try { state.stream?.destroy?.() } catch {}
     state.stream = undefined
 
-    if (elapsed < MIN_UTTERANCE_MS || chunks.length === 0) {
-      process.stderr.write(`artifice-discord: [voice-debug] flush skipped elapsed=${elapsed}ms chunks=${chunks.length}\n`)
-      return
-    }
+    if (elapsed < MIN_UTTERANCE_MS || chunks.length === 0) return
 
-    process.stderr.write(`artifice-discord: [voice-debug] flushing ${chunks.length} chunks, ${elapsed}ms\n`)
     const framedOpus = Buffer.concat(chunks.flatMap(chunk => {
       const len = Buffer.allocUnsafe(4)
       len.writeUInt32BE(chunk.length, 0)
       return [len, chunk]
     }))
-    const text = (await transcribe(framedOpus)).trim()
-    process.stderr.write(`artifice-discord: [voice-debug] STT result: "${text || '(empty)'}"\n`)
-    if (!text || this.states.get(state.guildId) !== state) {
-      if (!text && this.states.get(state.guildId) === state) {
+
+    let text: string
+    try {
+      text = (await transcribe(framedOpus)).trim()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      process.stderr.write(`artifice-discord: voice STT error: ${msg}\n`)
+      if (this.states.get(state.guildId) === state) {
         await this.onTranscript({
-          text: '[voice debug] STT returned empty — check Google credentials in tmux pane',
+          text: `[voice] STT error: ${msg.slice(0, 300)}`,
           chatId: state.textChannelId,
           guildId: state.guildId,
           voiceChannelId: state.voiceChannelId,
@@ -274,6 +211,8 @@ export class VoiceManager {
       }
       return
     }
+
+    if (!text || this.states.get(state.guildId) !== state) return
 
     await this.onTranscript({
       text,
