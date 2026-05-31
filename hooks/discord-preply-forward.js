@@ -108,23 +108,34 @@ process.stdin.on('end', async () => {
   state.forwarded_up_to = maxIndex
   try { writeFileSync(stateFile, JSON.stringify(state)) } catch {}
 
-  // Wrap in italics so internal thinking is visually distinct from the reply.
-  const allText = '_' + toForward.map(x => x.text).join('\n\n') + '_'
+  // Italicize per line after chunking so each Discord message is self-contained.
+  // Wrapping the full blob before chunking splits the _.._ pair across messages → literal underscores.
+  function wrapItalics(text) {
+    return text.split('\n').map(line => {
+      const trimmed = line.trim()
+      if (trimmed === '' || trimmed.startsWith('```')) return line
+      return '_' + line.replace(/([_*`~|\\])/g, '\\$1') + '_'
+    }).join('\n')
+  }
+
+  const allText = toForward.map(x => x.text).join('\n\n')
 
   const chunks = []
   let rest = allText
-  while (rest.length > 2000) {
-    let cut = rest.lastIndexOf('\n', 2000)
-    if (cut < 1000) cut = 2000
+  while (rest.length > 1960) {
+    let cut = rest.lastIndexOf('\n', 1960)
+    if (cut < 1000) cut = 1960
     chunks.push(rest.slice(0, cut))
     rest = rest.slice(cut).replace(/^\n+/, '')
   }
   if (rest) chunks.push(rest)
 
+  const italicChunks = chunks.map(wrapItalics)
+
   await new Promise(resolve => {
     function post(idx) {
-      if (idx >= chunks.length) { resolve(); return }
-      const body = JSON.stringify({ content: chunks[idx] })
+      if (idx >= italicChunks.length) { resolve(); return }
+      const body = JSON.stringify({ content: italicChunks[idx] })
       const req = request({
         hostname: 'discord.com',
         path: `/api/v10/channels/${channel}/messages`,
