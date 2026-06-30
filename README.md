@@ -1,6 +1,6 @@
 # artifice-discord
 
-Two-way Discord channel for Claude Code. A fork of Anthropic's official `discord` plugin, rebranded to own the full inbound+outbound pipe for the Artifice fleet — and the foundation for live tool-usage streaming (see [PLAN.md](./PLAN.md)).
+Two-way Discord channel for Claude Code. A fork of Anthropic's official `discord` plugin, rebranded to own the full inbound+outbound pipe, with live tool-usage streaming.
 
 When the bot receives a message, the MCP server forwards it to Claude and provides tools to reply, react, edit, fetch history, and download attachments.
 
@@ -48,7 +48,7 @@ Integration type: **Guild Install**. Copy the **Generated URL**, open it, and ad
 
 **4. Install the plugin.**
 
-This is a local fork, not a marketplace plugin. Point Claude Code at this checkout as a local plugin / marketplace, then `/reload-plugins`. (Exact wiring is finalized at cutover — see [PLAN.md](./PLAN.md) Phase 3.)
+This is a local fork, not a marketplace plugin. Point Claude Code at this checkout as a local plugin / marketplace, then `/reload-plugins`.
 
 > **Do not run this alongside the official `discord` plugin.** Both open a Discord gateway connection; on the same bot token they fight for the same shard and knock each other offline. The cutover is atomic: this plugin on, the official plugin off, same restart.
 
