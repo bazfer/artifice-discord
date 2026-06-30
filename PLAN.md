@@ -37,6 +37,15 @@ same token. Therefore: **artifice-discord ON and the official plugin OFF must
 happen in the same restart.** No overlap window, ever. Standalone testing uses a
 separate *test* bot token to avoid touching the live connection.
 
+## Standing rule — version bumps for runtime plugin changes
+Every PR that changes runtime plugin code in this repo MUST include a version
+bump in both `package.json` and `.claude-plugin/plugin.json`. Claude Code
+`/plugin update` compares plugin version strings, not git SHAs, to decide
+whether to re-materialize the plugin cache.
+
+- Use a minor bump (`0.X.0`) for new features or breaking changes.
+- Use a patch bump (`0.X.Y`) for pure fixes.
+
 ---
 
 ## Phase 0 — Prep & decisions

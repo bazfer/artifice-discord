@@ -10,6 +10,9 @@ import { transcribe } from './stt'
 import { speak } from './tts'
 
 const MISSING_VOICE_USER_ID_MESSAGE = 'DISCORD_VOICE_USER_ID env var required — set it to the Discord user ID the bot should listen to in voice channels.'
+const DEFAULT_VOICE_USER_NAME = 'The configured user'
+const MAX_VOICE_USER_NAME_LENGTH = 50
+const VOICE_USER_NAME_WARNING = 'artifice-discord: DISCORD_VOICE_USER_NAME longer than 50 chars, falling back to default\n'
 const MIN_UTTERANCE_MS = 300
 const INACTIVITY_LEAVE_MS = 10 * 60 * 1000
 
@@ -17,6 +20,16 @@ export function requiredVoiceUserId(targetUserId?: string): string {
   const userId = targetUserId ?? process.env.DISCORD_VOICE_USER_ID
   if (!userId) throw new Error(MISSING_VOICE_USER_ID_MESSAGE)
   return userId
+}
+
+export function voiceUserName(defaultName = DEFAULT_VOICE_USER_NAME): string {
+  const raw = process.env.DISCORD_VOICE_USER_NAME?.trim()
+  if (!raw) return defaultName
+  if (raw.length > MAX_VOICE_USER_NAME_LENGTH) {
+    process.stderr.write(VOICE_USER_NAME_WARNING)
+    return defaultName
+  }
+  return raw
 }
 
 export type VoiceMode = 'full' | 'listen'
@@ -57,9 +70,10 @@ export class VoiceManager {
 
     const member = await interaction.guild.members.fetch(requiredVoiceUserId(this.targetUserId))
     const voiceChannel = member.voice.channel
-    if (!voiceChannel) throw new Error('Fernando is not currently in a voice channel in this server')
+    const userName = voiceUserName()
+    if (!voiceChannel) throw new Error(`${userName} is not currently in a voice channel in this server`)
     if (voiceChannel.type !== ChannelType.GuildVoice && voiceChannel.type !== ChannelType.GuildStageVoice) {
-      throw new Error('Fernando is not in a joinable voice channel')
+      throw new Error(`${userName} is not in a joinable voice channel`)
     }
 
     await this.join(voiceChannel, interaction.channelId)
