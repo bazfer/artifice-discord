@@ -1076,6 +1076,7 @@ async function handleInbound(msg: Message): Promise<void> {
 client.once('ready', async c => {
   process.stderr.write(`artifice-discord: gateway connected as ${c.user.tag}\n`)
   const guildId = process.env.DISCORD_GUILD_ID
+  const voiceUserName = process.env.DISCORD_VOICE_USER_NAME ?? 'the configured user'
   const modelOption = {
     type: 3, // STRING
     name: 'model',
@@ -1090,9 +1091,9 @@ client.once('ready', async c => {
   const commands = [
     {
       name: 'voice',
-      description: 'Join or leave Fernando\'s current voice channel',
+      description: `Join or leave ${voiceUserName}'s current voice channel`,
       options: [
-        { type: 1, name: 'join', description: 'Join Fernando\'s current voice channel' },
+        { type: 1, name: 'join', description: `Join ${voiceUserName}'s current voice channel` },
         { type: 1, name: 'leave', description: 'Leave voice' },
         {
           type: 1,

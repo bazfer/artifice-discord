@@ -10,6 +10,7 @@ import { transcribe } from './stt'
 import { speak } from './tts'
 
 const MISSING_VOICE_USER_ID_MESSAGE = 'DISCORD_VOICE_USER_ID env var required — set it to the Discord user ID the bot should listen to in voice channels.'
+const DEFAULT_VOICE_USER_NAME = 'The configured user'
 const MIN_UTTERANCE_MS = 300
 const INACTIVITY_LEAVE_MS = 10 * 60 * 1000
 
@@ -57,9 +58,10 @@ export class VoiceManager {
 
     const member = await interaction.guild.members.fetch(requiredVoiceUserId(this.targetUserId))
     const voiceChannel = member.voice.channel
-    if (!voiceChannel) throw new Error('Fernando is not currently in a voice channel in this server')
+    const userName = process.env.DISCORD_VOICE_USER_NAME ?? DEFAULT_VOICE_USER_NAME
+    if (!voiceChannel) throw new Error(`${userName} is not currently in a voice channel in this server`)
     if (voiceChannel.type !== ChannelType.GuildVoice && voiceChannel.type !== ChannelType.GuildStageVoice) {
-      throw new Error('Fernando is not in a joinable voice channel')
+      throw new Error(`${userName} is not in a joinable voice channel`)
     }
 
     await this.join(voiceChannel, interaction.channelId)
