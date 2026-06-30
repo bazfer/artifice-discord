@@ -35,8 +35,10 @@ import { execSync } from 'child_process'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { join, sep } from 'path'
-import { VoiceManager, requiredVoiceUserId } from './voice'
+import { VoiceManager, requiredVoiceUserId, voiceUserName } from './voice'
 
+const VOICE_TRANSCRIPT_USER_NAME = 'User'
+const SLASH_COMMAND_VOICE_USER_NAME = 'the configured user'
 const STATE_DIR = process.env.DISCORD_STATE_DIR ?? join(homedir(), '.claude', 'channels', 'discord')
 const ACCESS_FILE = join(STATE_DIR, 'access.json')
 const APPROVED_DIR = join(STATE_DIR, 'approved')
@@ -512,7 +514,7 @@ const voiceManager = new VoiceManager({
         meta: {
           chat_id: chatId,
           message_id: `voice-${Date.now()}`,
-          user: process.env.DISCORD_VOICE_USER_NAME ?? 'User',
+          user: voiceUserName(VOICE_TRANSCRIPT_USER_NAME),
           user_id: requiredVoiceUserId(),
           ts: new Date().toISOString(),
           voice: 'true',
@@ -1076,7 +1078,7 @@ async function handleInbound(msg: Message): Promise<void> {
 client.once('ready', async c => {
   process.stderr.write(`artifice-discord: gateway connected as ${c.user.tag}\n`)
   const guildId = process.env.DISCORD_GUILD_ID
-  const voiceUserName = process.env.DISCORD_VOICE_USER_NAME ?? 'the configured user'
+  const configuredVoiceUserName = voiceUserName(SLASH_COMMAND_VOICE_USER_NAME)
   const modelOption = {
     type: 3, // STRING
     name: 'model',
@@ -1091,9 +1093,9 @@ client.once('ready', async c => {
   const commands = [
     {
       name: 'voice',
-      description: `Join or leave ${voiceUserName}'s current voice channel`,
+      description: `Join or leave ${configuredVoiceUserName}'s current voice channel`,
       options: [
-        { type: 1, name: 'join', description: `Join ${voiceUserName}'s current voice channel` },
+        { type: 1, name: 'join', description: `Join ${configuredVoiceUserName}'s current voice channel` },
         { type: 1, name: 'leave', description: 'Leave voice' },
         {
           type: 1,
